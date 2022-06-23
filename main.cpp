@@ -44,6 +44,7 @@ void WriteMem(uint32_t x, int p, int k) {// write and read are both little-endia
 }
 
 int main() {
+//    freopen(DIR"testcases/pi.data", "r", stdin);
     Init();
     while (true) {
         auto code = ReadIns();
