@@ -35,28 +35,36 @@ namespace hnyls2002 {
 
     struct RegFile {
         bool busy;
-        uint32_t Q;
+        uint32_t id;// id in reorder buffer, always cover
     };
 
-    struct Rnm_Ins {// Rename-Instruction for reservation-station & load-store-buffer
+    struct RS_Ins {// Rename-Instruction for reservation-station & load-store-buffer
         bool busy;
         Ins_ENUM op;
-        uint32_t V1, V2, Q1, Q2, A;
+        uint32_t ins_pc, V1, V2, Q1, Q2, A, id;// id in reorder buffer , for commit
     };
 
     template<const size_t SIZE = 32>
     class ResStat {
     private:
-        Rnm_Ins data[SIZE];
-
+        RS_Ins data[SIZE];
     public:
+
+        void Clear() {
+            for (int i = 0; i < SIZE; ++i) data[i].busy = false;
+        }
+
+        RS_Ins &operator[](const int &k) {
+            return data[k];
+        }
+
         bool Ava() {
             for (int i = 0; i < SIZE; ++i)
                 if (data[i].busy)return false;
             return true;
         }
 
-        int Insert(const Rnm_Ins &val) {
+        int Insert(const RS_Ins &val) {
             for (int i = 0; i < SIZE; ++i) {
                 if (!data[i].busy) {
                     data[i] = val;
@@ -65,55 +73,107 @@ namespace hnyls2002 {
             }
             throw BufferFullException();
         }
+
+        int Find_Ready() {
+            for (int i = 0; i < SIZE; ++i)
+                if (data[i].busy && data[i].Q1 == 0 && data[i].Q2 == 0)
+                    return i;
+            return -1;
+        }
+
+    };
+
+    struct LSB_Ins {// Rename-Instruction for reservation-station & load-store-buffer
+        bool busy, cmt_flag, calc_done;
+        Ins_ENUM op;
+        uint32_t V1, V2, Q1, Q2, A, id;// id in reorder buffer , for commit
+        int ins_clk;
+        RS_ENUM ls_type;
     };
 
     template<const size_t SIZE = 32>
     class LSBuffer {
-    private:
-        Rnm_Ins data[SIZE];
-        int iss_clk[SIZE];
+//    private:
+        LSB_Ins data[SIZE];
 
     public:
+
+        void Clear() {
+            for (int i = 0; i < SIZE; ++i) data[i].busy = false;
+        }
+
+        LSB_Ins &operator[](const int &k) {
+            return data[k];
+        }
+
         bool Ava() {
             for (int i = 0; i < SIZE; ++i)
                 if (data[i].busy)return false;
             return true;
         }
 
-        int Insert(const Rnm_Ins &val, int c) {
+        int Insert(const LSB_Ins &val) {
             for (int i = 0; i < SIZE; ++i) {
                 if (!data[i].busy) {
-                    data[i] = val, iss_clk[i] = c;
+                    data[i] = val;
                     return i;
                 }
             }
             throw BufferFullException();
         }
+
+        int Find_Store_Ready() {
+            for (int i = 0; i < SIZE; ++i)
+                if (data[i].busy && !data[i].calc_done && data[i].ls_type == ST && data[i].Q1 == 0 && data[i].Q2 == 0)
+                    return i;
+            return -1;
+        }
+
+        int Find_Memory_Ready() { // the min clk
+            int Min = 0x3f3f3f3f, ind = -1;
+            for (int i = 0; i < SIZE; ++i)
+                if (data[i].busy && data[i].ins_clk < Min)
+                    Min = data[i].ins_clk, ind = i;
+            if (ind == -1)return -1;
+            if (data[ind].ls_type == LD && data[ind].Q1 == 0) return ind;
+            if (data[ind].ls_type == ST && data[ind].cmt_flag) return ind;
+            return -1;
+        }
     };
 
     struct ROB_Ins {
-        u_int32_t opcode{}, des{}, rs1{}, rs2{}, fun3{}, fun7{}, imm{}, shamt{};// shift amount
+        bool ready{}, jump_prdc{}, jump_real{};
         Ins_ENUM ins_type{};
+        uint32_t des{}, rs1{}, rs2{}, imm{}, val{}, n_pc{}, ins_pc{};
+
+        ROB_Ins() = default;
+
+        explicit ROB_Ins(const Ins &ins, bool _jump_prdc, uint32_t now_pc) : ready(false), jump_prdc(_jump_prdc),
+                                                                             ins_type(ins.ins_type), des(ins.rd),
+                                                                             rs1(ins.rs1), rs2(ins.rs2), imm(ins.imm),
+                                                                             val(0), ins_pc(now_pc) {}
     };
 
     template<class T, const int MAX_SIZE>
     class Queue {
     private:
-        T qu[MAX_SIZE];
-        int hd{1}, tl{0};
+        T qu[MAX_SIZE]{};
 
     public:
-        size_t Size() const { return tl - hd + 1; }
+        int hd{1}, tl{0};
 
-        bool Full() const { return Size() == MAX_SIZE; }
+        size_t Size() const { return tl - hd + 1; }
 
         bool Ava() const { return Size() != MAX_SIZE; }
 
+        int AvaPos() const { return tl + 1; }
+
         bool Empty() const { return hd == tl + 1; }
 
-        void Push(const T &data) {
+        int Push(const T &data) {
             if (Size() == MAX_SIZE)throw BufferFullException();
             qu[(++tl) % MAX_SIZE] = data;
+            return tl;
         }
 
         T Front() const {
@@ -121,20 +181,26 @@ namespace hnyls2002 {
             return qu[hd % MAX_SIZE];
         }
 
+        int TopPos() const { return hd; }
+
         T Pop() {
             if (Empty())throw BufferEmptyException();
             return qu[(hd++) % MAX_SIZE];
         }
 
         T &operator[](const int &k) {
-            if (k >= MAX_SIZE || k < -MAX_SIZE)throw IndexOutException();
-            return qu[(k + MAX_SIZE) % MAX_SIZE];
+            if (k > tl || k < hd) throw IndexOutException();
+            return qu[k % MAX_SIZE];
         }
 
-        void Clear() { hd = tl + 1; }
+        void Clear() { tl = hd - 1; }
 
     };
 
+    struct CDB_Type {
+        bool busy, jump;
+        uint32_t id, val, n_pc;// 算出来的val放入id号ROB中
+    };
 }
 
 

@@ -1,9 +1,17 @@
 #include <iostream>
-#include "Components.hpp"
+#include "Simulator.hpp"
 
 using namespace hnyls2002;
 
+#define DIR "testcases_for_riscv/"
+
 int main() {
-    std::cout << "Hello, World!" << std::endl;
+/*
+    freopen(DIR"testcases/pi.data", "r", stdin);
+    freopen("test.out", "w", stdout);
+*/
+    Simulator sim;
+    sim.Init();
+    sim.Run();
     return 0;
 }

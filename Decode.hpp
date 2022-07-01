@@ -23,7 +23,7 @@ namespace hnyls2002 {
     };
 
     enum RS_ENUM {
-        BSC, LD, ST, JUMP, BRC
+        BSC, JUMP, BRC, LD, ST
     };
 
     const RS_ENUM RSType[] = {
@@ -37,14 +37,12 @@ namespace hnyls2002 {
     };
 
     struct Ins {
-        u_int32_t opcode{}, rd{}, rs1{}, rs2{}, fun3{}, fun7{}, imm{}, shamt{};// shift amount
         Ins_ENUM ins_type{};
+        Code_ENUM code_type{};
+        u_int32_t rd{}, rs1{}, rs2{}, imm{};// (shift amount)
     };
 
-    uint32_t Pick(uint32_t
-                  x,
-                  uint32_t r, uint32_t
-                  l) {// [r:l] -> [r-l:0]
+    uint32_t Pick(uint32_t x, uint32_t r, uint32_t l) {// [r:l] -> [r-l:0]
         return x >> l & ((1 << (r - l + 1)) - 1);
     }
 
@@ -121,35 +119,36 @@ namespace hnyls2002 {
         auto P = [=](uint32_t r, uint32_t l) { return Pick(ins_code, r, l); };
         auto PIMM = [=](uint32_t r, uint32_t l, uint32_t k) { return Pick(ins_code, r, l) << k; };
         Ins ret;
-        ret.opcode = P(6, 0);
-        switch (code_map[ret.opcode]) {
+        uint32_t opcode = 0, fun3 = 0, fun7 = 0;
+        opcode = P(6, 0);
+        ret.code_type = code_map[opcode];
+        switch (ret.code_type) {
             case R_type:
                 ret.rd = P(11, 7);
                 ret.rs1 = P(19, 15);
                 ret.rs2 = P(24, 20);
-                ret.fun3 = P(14, 12);
-                ret.fun7 = P(31, 25);
+                fun3 = P(14, 12);
+                fun7 = P(31, 25);
                 break;
             case I_type:
                 ret.rd = P(11, 7);
                 ret.rs1 = P(19, 15);
-                ret.fun3 = P(14, 12);
-                if (ret.opcode == 0b0010011 && (ret.fun3 == 0b001 || ret.fun3 == 0b101)) {
-                    ret.fun7 = P(31, 25);// I-type can have func7 ?
-                    ret.shamt = P(24, 20);
-                }
-                ret.imm = SExt(PIMM(31, 20, 0), 11);
+                fun3 = P(14, 12);
+                if (opcode == 0b0010011 && (fun3 == 0b001 || fun3 == 0b101)) {
+                    fun7 = P(31, 25);// I-type can have func7 ?
+                    ret.imm = P(24, 20);
+                } else ret.imm = SExt(PIMM(31, 20, 0), 11);
                 break;
             case S_type:
                 ret.rs1 = P(19, 15);
                 ret.rs2 = P(24, 20);
-                ret.fun3 = P(14, 12);
+                fun3 = P(14, 12);
                 ret.imm = SExt(PIMM(31, 25, 5) + PIMM(11, 7, 0), 11);
                 break;
             case B_type:
                 ret.rs1 = P(19, 15);
                 ret.rs2 = P(24, 20);
-                ret.fun3 = P(14, 12);
+                fun3 = P(14, 12);
                 ret.imm = PIMM(31, 31, 12) + PIMM(30, 25, 5) + PIMM(11, 8, 1) + PIMM(7, 7, 11);
                 ret.imm = SExt(ret.imm, 12);
                 break;
@@ -163,12 +162,7 @@ namespace hnyls2002 {
                 ret.imm = SExt(ret.imm, 20);
                 break;
         }
-        ret.ins_type = ins_map[Triple{ret.opcode, ret.fun3, ret.fun7}];
-        ret.rd = P(11, 7);
-        ret.rs1 = P(19, 15);
-        ret.rs2 = P(24, 20);
-        ret.fun3 = P(14, 12);
-        ret.fun7 = P(31, 25);
+        ret.ins_type = ins_map[Triple{opcode, fun3, fun7}];
         return ret;
     }
 
