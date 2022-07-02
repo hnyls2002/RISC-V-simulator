@@ -6,6 +6,8 @@
 #define RISC_V_SIMULATOR_SIMULATOR_HPP
 
 #include <iostream>
+#include <algorithm>
+#include <random>
 #include "Components.hpp"
 
 namespace hnyls2002 {
@@ -110,7 +112,6 @@ namespace hnyls2002 {
                 lsb_node.ins_clk = clk;
                 lsb_node.ls_type = RSType[issue_ins.ins_type];
                 lsb_node.cmt_flag = false;
-//                std::cerr << lsb_node.ls_type << " " << lsb_node.id << " " << lsb_node.ins_clk << std::endl;
                 if (lsb_node.ls_type == ST) {// rs1 rs2
                     Fetch_Reg(issue_ins.rs1, lsb_node.V1, lsb_node.Q1);
                     Fetch_Reg(issue_ins.rs2, lsb_node.V2, lsb_node.Q2);
@@ -124,7 +125,6 @@ namespace hnyls2002 {
             lsb_store_pos_msg = input.ls_buffer.Find_Store_Ready();
             if (lsb_store_pos_msg != -1) {// STORE指令的两个寄存器计算完成，发送给ROB表明ready
                 ins = input.ls_buffer[lsb_store_pos_msg];
-//                if (ins.id == 185448)std::cerr << "DASDASDS" << std::endl;
                 now.rob[(int) ins.id].ready = true;
                 now.ls_buffer[lsb_store_pos_msg].calc_done = true;
             }
@@ -208,13 +208,6 @@ namespace hnyls2002 {
             issue_ins = Decode(memory.ReadMem((int) now.pc, 3));// 发送解析出来的指令
             issue_flag = false;
 
-/*
-            if (issue_id == 40024) {
-                std::cerr << memory.ReadMem((int) now.pc, 3) << std::endl;
-                std::cerr << issue_ins.imm << std::endl;
-            }
-*/
-
             auto rs_type = RSType[issue_ins.ins_type];
             if (rs_type <= BRC && now.res_st.Ava()) {
                 if (memory.ReadMem((int) now.pc, 3) == 0x0ff00513)end_flag = true;
@@ -236,10 +229,6 @@ namespace hnyls2002 {
                 case LD:
                 case JUMP:
                     // commit成功了要更新regfile，注意issue阶段可能也修改了regfile
-/*
-                    std::cerr << id << " " << ins.val << " " << ins.des << std::endl;
-                    if (id == 13)std::cerr << now.reg_file[ins.des].id << std::endl;
-*/
                     // 精确终端，必须给reg先赋值，即使后面的操作由重新定义了reg的值（因为后面的操作可能假了）
                     now.reg[ins.des] = ins.val;
                     if (now.reg_file[ins.des].id == id && now.reg_file[ins.des].busy) {
@@ -275,8 +264,6 @@ namespace hnyls2002 {
             printf("------------------\n");
 */
 
-//            std::cerr << "Commit id : " << id << std::endl;
-//            std::cerr << now.rob.hd << " " << now.rob.tl << std::endl;
         }
 
         void RollBack(uint32_t n_pc) {
@@ -413,8 +400,6 @@ namespace hnyls2002 {
             static uint32_t val = 0;
             static LSB_Ins ins{};
 
-//            std::cerr<<now.ls_buffer[4].ls_type<<std::endl;
-
             if (!in_memory_access) {// 目前没有在进行内存访问
                 lsb_memory_pos_msg = now.ls_buffer.Find_Memory_Ready();// 组合逻辑，直接用当前的值
                 if (lsb_memory_pos_msg != -1) {
@@ -431,11 +416,6 @@ namespace hnyls2002 {
                         break;
                     case LW:
                         val = memory.ReadMem((int) (ins.V1 + ins.A), 3);
-/*
-                        std::cerr << "cdb2 id = " << ins.id << std::endl;
-                        std::cerr << "addr " << ins.V1 <<" "<< ins.A << std::endl;
-                        std::cerr << val << std::endl;
-*/
                         break;
                     case LBU:
                         val = memory.ReadMem((int) (ins.V1 + ins.A), 0);
@@ -450,10 +430,6 @@ namespace hnyls2002 {
                         memory.WriteMem(ins.V2, (int) (ins.V1 + ins.A), 1);
                         break;
                     case SW:
-/*
-                        std::cerr << ins.id << std::endl;
-                        std::cerr << (int) (ins.V1 + ins.A) << std::endl;
-*/
                         memory.WriteMem(ins.V2, (int) (ins.V1 + ins.A), 3);
                         break;
                     default:
@@ -467,24 +443,34 @@ namespace hnyls2002 {
             }
         }
 
-        void Run() {
-            int cnt = 40;
-            while (true) {
-                //if (--cnt == 0)break;
-                Update();
+        void (Simulator::*comp[5])() = {&Simulator::Run_ROB, &Simulator::Run_RS, &Simulator::Run_RegFile,
+                                        &Simulator::Run_CDB, &Simulator::Run_LSB};
 
+        void Run() {
+            srand((unsigned) time(NULL));
+            while (true) {
+                Update();
+                std::random_shuffle(comp, comp + 4);
+
+//                std::shuffle(comp, comp + 4, std::mt19937(std::random_device()()));
+
+                for (int i = 0; i < 5; ++i)(this->*comp[i])();
+/*
                 Run_CDB();
                 Run_LSB();
                 Run_ROB();
                 Run_RS();
                 Run_RegFile();
+*/
 
                 Execute();
                 Memory_Access();
                 Commit();
                 Issue();
+
                 if (end_flag && now.rob.Empty()) {
                     std::cout << std::dec << (now.reg[10] & ((uint32_t) 255)) << std::endl;
+                    std::cerr << "\033[1m\033[37mAns is " << std::dec << (now.reg[10] & ((uint32_t) 255)) << std::endl;
                     break;
                 }
             }
