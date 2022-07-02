@@ -8,6 +8,7 @@
 #include <iostream>
 #include <algorithm>
 #include <random>
+#include <bitset>
 #include "Components.hpp"
 
 namespace hnyls2002 {
@@ -42,7 +43,26 @@ namespace hnyls2002 {
         // 0ff00513
         bool end_flag{};
 
-        int clk{};
+        int clk{}, branch_total{}, branch_correct{};
+        std::bitset<2> counter[32];
+        std::hash<uint32_t> Hash;
+
+        void UpdateCounter(int id, bool jump) {
+            switch (counter[id].to_ulong()) {
+                case 0b00:
+                    counter[id] = jump ? 0b01 : 0b00;
+                    break;
+                case 0b01:
+                    counter[id] = jump ? 0b10 : 0b00;
+                    break;
+                case 0b10:
+                    counter[id] = jump ? 0b11 : 0b01;
+                    break;
+                case 0b11:
+                    counter[id] = jump ? 0b11 : 0b10;
+                    break;
+            }
+        }
 
     public:
 
@@ -149,8 +169,13 @@ namespace hnyls2002 {
                         now.rob.Push(ROB_Ins(issue_ins, false, input.pc));
                     } else {
                         // Predict Here...
-                        now.pc = input.pc + issue_ins.imm;
-                        now.rob.Push(ROB_Ins(issue_ins, true, input.pc));
+                        if (counter[Hash(input.pc) % 31].test(1)) {// jump status
+                            now.pc = input.pc + issue_ins.imm;
+                            now.rob.Push(ROB_Ins(issue_ins, true, input.pc));
+                        } else {
+                            now.pc = input.pc + 4;
+                            now.rob.Push(ROB_Ins(issue_ins, false, input.pc));
+                        }
                     }
                 }
             }
@@ -249,6 +274,11 @@ namespace hnyls2002 {
                     }
             }
             if (rs_type == BRC || ins.ins_type == JALR) { // 判断分支预测的准确性
+                if (rs_type == BRC) {
+                    ++branch_total;
+                    if (ins.jump_real == ins.jump_prdc)++branch_correct;
+                    UpdateCounter(Hash(ins.ins_pc) % 31, ins.jump_real);
+                }
                 if (ins.jump_prdc != ins.jump_real) {// 预测错误
                     RollBack(ins.n_pc);
                 }
@@ -474,6 +504,10 @@ namespace hnyls2002 {
                     break;
                 }
             }
+/*
+            std::cout << branch_correct << "/" << branch_total << " = " << (double) branch_correct / branch_total
+                      << std::endl;
+*/
         }
     };
 }
