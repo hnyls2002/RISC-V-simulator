@@ -44,25 +44,8 @@ namespace hnyls2002 {
         bool end_flag{};
 
         int clk{}, branch_total{}, branch_correct{};
-        std::bitset<2> counter[32];
-        std::hash<uint32_t> Hash;
-
-        void UpdateCounter(int id, bool jump) {
-            switch (counter[id].to_ulong()) {
-                case 0b00:
-                    counter[id] = jump ? 0b01 : 0b00;
-                    break;
-                case 0b01:
-                    counter[id] = jump ? 0b10 : 0b00;
-                    break;
-                case 0b10:
-                    counter[id] = jump ? 0b11 : 0b01;
-                    break;
-                case 0b11:
-                    counter[id] = jump ? 0b11 : 0b10;
-                    break;
-            }
-        }
+        std::bitset<4> branch_history[1024];
+        std::bitset<2> pattern_counter[16];
 
     public:
 
@@ -169,7 +152,8 @@ namespace hnyls2002 {
                         now.rob.Push(ROB_Ins(issue_ins, false, input.pc));
                     } else {
                         // Predict Here...
-                        if (counter[Hash(input.pc) % 31].test(1)) {// jump status
+                        uint32_t his = branch_history[input.pc & 1023u].to_ulong();
+                        if (pattern_counter[his].test(1)) {// jump status
                             now.pc = input.pc + issue_ins.imm;
                             now.rob.Push(ROB_Ins(issue_ins, true, input.pc));
                         } else {
@@ -277,7 +261,26 @@ namespace hnyls2002 {
                 if (rs_type == BRC) {
                     ++branch_total;
                     if (ins.jump_real == ins.jump_prdc)++branch_correct;
-                    UpdateCounter(Hash(ins.ins_pc) % 31, ins.jump_real);
+                    auto &his = branch_history[ins.ins_pc & 1023u];
+                    auto las = his;
+                    his = his << 1, his[0] = ins.jump_real;
+                    auto &c = pattern_counter[las.to_ulong()];
+
+                    switch (c.to_ulong()) {
+                        case 0b00:
+                            c = ins.jump_real ? 0b01 : 0b00;
+                            break;
+                        case 0b01:
+                            c = ins.jump_real ? 0b10 : 0b00;
+                            break;
+                        case 0b10:
+                            c = ins.jump_real ? 0b11 : 0b01;
+                            break;
+                        case 0b11:
+                            c = ins.jump_real ? 0b11 : 0b10;
+                            break;
+                    }
+
                 }
                 if (ins.jump_prdc != ins.jump_real) {// 预测错误
                     RollBack(ins.n_pc);
@@ -504,7 +507,7 @@ namespace hnyls2002 {
                     break;
                 }
             }
-            std::cout << "fuck" << std::endl;
+//            std::cout << "fuck" << std::endl;
 /*
             std::cout << branch_correct << "/" << branch_total << " = " << (double) branch_correct / branch_total
                       << std::endl;
