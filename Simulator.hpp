@@ -507,6 +507,7 @@ namespace hnyls2002 {
                     break;
                 }
             }
+//            std::cout << "circles : " << clk << std::endl;
 //            std::cout << "fuck" << std::endl;
 /*
             std::cout << branch_correct << "/" << branch_total << " = " << (double) branch_correct / branch_total
